@@ -11,6 +11,8 @@ from typing import Dict, Any, Optional
 import uvicorn
 import json
 import os
+import re # Added for env var substitution
+from dotenv import load_dotenv # Added for .env support
 
 from mcpo.utils.auth import get_verify_api_key
 
@@ -31,6 +33,25 @@ def get_python_type(param_type: str):
     else:
         return str  # Fallback
     # Expand as needed. PRs welcome!
+
+
+# Helper function to substitute environment variables in arguments
+def substitute_env_vars(arg_list):
+    substituted_args = []
+    for arg in arg_list:
+        # Find all ${VAR_NAME} patterns
+        placeholders = re.findall(r"\$\{(\w+)\}", arg)
+        substituted_arg = arg
+        for placeholder in placeholders:
+            env_value = os.getenv(placeholder)
+            if env_value is not None:
+                # Substitute if env var exists
+                substituted_arg = substituted_arg.replace(f"${{{placeholder}}}", env_value)
+            else:
+                # Optional: Warn or raise error if env var is missing
+                print(f"Warning: Environment variable '{placeholder}' not found for substitution in args.")
+        substituted_args.append(substituted_arg)
+    return substituted_args
 
 
 async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
@@ -141,13 +162,17 @@ async def lifespan(app: FastAPI):
 async def run(
     host: str = "127.0.0.1",
     port: int = 8000,
-    api_key: Optional[str] = "",
+    # api_key: Optional[str] = "", # Removed CLI argument
     cors_allow_origins=["*"],
     **kwargs,
 ):
 
-    # Server API Key
-    api_dependency = get_verify_api_key(api_key) if api_key else None
+    # Load .env file
+    load_dotenv()
+
+    # Server API Key from environment variable
+    api_key_from_env = os.getenv("MCPO_API_KEY")
+    api_dependency = get_verify_api_key(api_key_from_env) if api_key_from_env else None
 
     # MCP Config
     config_path = kwargs.get("config")
@@ -204,7 +229,9 @@ async def run(
             )
 
             sub_app.state.command = server_cfg["command"]
-            sub_app.state.args = server_cfg.get("args", [])
+            # Substitute environment variables in args
+            original_args = server_cfg.get("args", [])
+            sub_app.state.args = substitute_env_vars(original_args)
             sub_app.state.env = {**os.environ, **server_cfg.get("env", {})}
 
             sub_app.state.api_dependency = api_dependency

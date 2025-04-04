@@ -1,0 +1,35 @@
+# Git files
+.git
+.gitignore
+
+# Python cache and virtual environment files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Secrets - should be passed as environment variables at runtime
+.env*
+
+# Docker files
+Dockerfile
+.dockerignore
+
+# IDE/Editor specific files
+.vscode/
+.idea/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Test files (optional, uncomment if needed)
+# tests/
+# *.pytest_cache/
+# coverage.xml
+# .coverage

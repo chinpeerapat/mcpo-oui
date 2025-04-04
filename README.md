@@ -72,6 +72,18 @@ Example config.json:
     "time": {
       "command": "uvx",
       "args": ["mcp-server-time", "--local-timezone=America/New_York"]
+    },
+    "fs": {
+      "command": "uvx",
+      "args": ["mcp-server-fs", "--root=/path/to/allow"]
+    },
+    "search": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-websearch", "--api-key=YOUR_SEARCH_API_KEY"]
+    },
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-fetch"]
     }
   }
 }
@@ -80,7 +92,10 @@ Example config.json:
 Each tool will be accessible under its own unique route, e.g.:
 - http://localhost:8000/memory
 - http://localhost:8000/time
-
+- http://localhost:8000/fs
+- http://localhost:8000/search
+- http://localhost:8000/fetch
+- http://localhost:8000/search
 Each with a dedicated OpenAPI schema and proxy handler. Access full schema UI at: `http://localhost:8000/<tool>/docs`  (e.g. /memory/docs, /time/docs)
 
 ## 🔧 Requirements
