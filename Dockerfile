@@ -13,8 +13,12 @@ RUN groupadd --gid 1001 appuser && \
 # Install uv using pip (needed to install mcpo with uv)
 # Combine RUN commands for layer efficiency
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl ca-certificates && \
+    apt-get install -y --no-install-recommends curl ca-certificates nodejs npm && \
     pip install uv && \
+    # Install firecrawl server globally
+    npm install -g @mendableai/firecrawl-mcp-server && \
+    # Clean up caches
+    npm cache clean --force && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -23,7 +27,7 @@ WORKDIR /app
 
 # Install the mcpo package using uv
 # This assumes 'mcpo' is available on PyPI or a configured index
-RUN uv pip install --system mcpo
+RUN uv pip install --system mcpo mcp-server-time mcp-server-fetch
 
 # Copy the configuration file
 COPY config.json ./
