@@ -9,6 +9,6 @@ wheels/
 # Virtual environments
 .venv
 mcp.json
-
+.env
 .environments
 .roo
