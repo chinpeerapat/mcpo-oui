@@ -17,11 +17,11 @@ WORKDIR /app
 # Install Python packages
 RUN pip install mcpo uv mcp-server-time mcp-server-fetch
 
-# Copy configuration
-COPY config.json ./
+# Copy configuration to the correct location
+COPY config.json /app/config.json
 
 # Expose port
 EXPOSE 8000
 
 # Replace with your MCP server command; example: uvx mcp-server-time
-CMD ["mcpo", "--host", "0.0.0.0", "--port", "8000", "--config", "config.json"]
+CMD ["mcpo", "--host", "0.0.0.0", "--port", "8000", "--config", "/app/config.json"]
