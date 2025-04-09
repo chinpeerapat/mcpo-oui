@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Dict, Any, Optional
 
@@ -13,6 +14,36 @@ from mcp.types import CallToolResult
 from mcpo.utils.auth import get_verify_api_key
 from pydantic import create_model
 from starlette.routing import Mount
+
+
+def substitute_env_vars(json_obj):
+    """Recursively substitute environment variables in a JSON object"""
+    if isinstance(json_obj, dict):
+        return {k: substitute_env_vars(v) for k, v in json_obj.items()}
+    elif isinstance(json_obj, list):
+        return [substitute_env_vars(item) for item in json_obj]
+    elif isinstance(json_obj, str):
+        # Replace ${VAR} with the environment variable value
+        pattern = r'\${([A-Za-z0-9_]+)}'
+        matches = re.findall(pattern, json_obj)
+        result = json_obj
+        for var_name in matches:
+            if var_name in os.environ:
+                placeholder = f'${{{var_name}}}'
+                result = result.replace(placeholder, os.environ[var_name])
+        return result
+    else:
+        return json_obj
+
+
+def process_config_file(config_path):
+    """Process a config file and substitute environment variables"""
+    with open(config_path, 'r') as f:
+        config_data = json.load(f)
+    
+    processed_config = substitute_env_vars(config_data)
+    
+    return processed_config
 
 
 def get_python_type(param_type: str):
@@ -198,18 +229,18 @@ async def run(
     )
 
     if server_command:
-
         main_app.state.command = server_command[0]
         main_app.state.args = server_command[1:]
         main_app.state.env = os.environ.copy()
-
         main_app.state.api_dependency = api_dependency
     elif config_path:
-        with open(config_path, "r") as f:
-            config_data = json.load(f)
+        # Use the env processor to handle environment variables
+        config_data = process_config_file(config_path)
         mcp_servers = config_data.get("mcpServers", {})
+        
         if not mcp_servers:
             raise ValueError("No 'mcpServers' found in config file.")
+            
         main_app.description += "\n\n- **available tools**："
         for server_name, server_cfg in mcp_servers.items():
             sub_app = FastAPI(
