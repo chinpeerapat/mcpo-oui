@@ -30,8 +30,7 @@
     "exa": {
       "command": "npx",
       "args": [
-        "exa-mcp-server",
-        "--tools=web_search,research_paper_search,twitter_search"
+        "exa-mcp-server"
       ],
       "env": {
         "EXA_API_KEY": "${EXA_API_KEY}"
