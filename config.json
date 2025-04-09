@@ -43,6 +43,13 @@
         "@playwright/mcp@latest",
         "--headless"
       ]
+    },
+    "openai-websearch-mcp": {
+      "command": "uvx",
+      "args": ["openai-websearch-mcp"],
+      "env": {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+      }
     }
   }
 }
