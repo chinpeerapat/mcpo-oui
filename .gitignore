@@ -9,3 +9,6 @@ wheels/
 # Virtual environments
 .venv
 config.json
+.github/.DS_Store
+
+.DS_Store
