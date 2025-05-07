@@ -5,15 +5,17 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Dict, Any, Optional
 
 import uvicorn
-from fastapi import FastAPI, Body, Depends
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mcp import ClientSession, StdioServerParameters, types
+from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
 from mcp.types import CallToolResult
-
-from mcpo.utils.auth import get_verify_api_key
-from pydantic import create_model
 from starlette.routing import Mount
+
+# Import the new utility functions from upstream
+from mcpo.utils.main import get_model_fields, get_tool_handler
+from mcpo.utils.auth import get_verify_api_key, APIKeyMiddleware
 
 
 def substitute_env_vars(json_obj):
@@ -86,7 +88,7 @@ def process_tool_response(result: CallToolResult) -> list:
 
 
 async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
-    session = app.state.session
+    session: ClientSession = app.state.session
     if not session:
         raise ValueError("Session is not initialized in the app state.")
 
@@ -105,68 +107,56 @@ async def create_dynamic_endpoints(app: FastAPI, api_dependency=None):
     for tool in tools:
         endpoint_name = tool.name
         endpoint_description = tool.description
-        schema = tool.inputSchema
 
-        model_fields = {}
-        required_fields = schema.get("required", [])
-        properties = schema.get("properties", {})
+        inputSchema = tool.inputSchema
+        outputSchema = getattr(tool, "outputSchema", None)
 
-        for param_name, param_schema in properties.items():
-            param_type = param_schema.get("type", "string")
-            param_desc = param_schema.get("description", "")
-            python_type = get_python_type(param_type)
-            default_value = ... if param_name in required_fields else None
-            model_fields[param_name] = (
-                python_type,
-                Body(default_value, description=param_desc),
+        form_model_fields = get_model_fields(
+            f"{endpoint_name}_form_model",
+            inputSchema.get("properties", {}),
+            inputSchema.get("required", []),
+            inputSchema.get("$defs", {}),
+        )
+
+        response_model_fields = None
+        if outputSchema:
+            response_model_fields = get_model_fields(
+                f"{endpoint_name}_response_model",
+                outputSchema.get("properties", {}),
+                outputSchema.get("required", []),
+                outputSchema.get("$defs", {}),
             )
 
-        if model_fields:
-            FormModel = create_model(f"{endpoint_name}_form_model", **model_fields)
-
-            def make_endpoint_func(
-                endpoint_name: str, FormModel, session: ClientSession
-            ):  # Parameterized endpoint
-                async def tool(form_data: FormModel):
-                    args = form_data.model_dump(exclude_none=True)
-                    result = await session.call_tool(endpoint_name, arguments=args)
-                    return process_tool_response(result)
-
-                return tool
-
-            tool_handler = make_endpoint_func(endpoint_name, FormModel, session)
-        else:
-
-            def make_endpoint_func_no_args(
-                endpoint_name: str, session: ClientSession
-            ):  # Parameterless endpoint
-                async def tool():  # No parameters
-                    result = await session.call_tool(
-                        endpoint_name, arguments={}
-                    )  # Empty dict
-                    return process_tool_response(result)  # Same processor
-
-                return tool
-
-            tool_handler = make_endpoint_func_no_args(endpoint_name, session)
+        tool_handler = get_tool_handler(
+            session,
+            endpoint_name,
+            form_model_fields,
+            response_model_fields,
+        )
 
         app.post(
             f"/{endpoint_name}",
             summary=endpoint_name.replace("_", " ").title(),
             description=endpoint_description,
+            response_model_exclude_none=True,
             dependencies=[Depends(api_dependency)] if api_dependency else [],
         )(tool_handler)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    server_type = getattr(app.state, "server_type", "stdio")
     command = getattr(app.state, "command", None)
     args = getattr(app.state, "args", [])
     env = getattr(app.state, "env", {})
 
+    args = args if isinstance(args, list) else [args]
     api_dependency = getattr(app.state, "api_dependency", None)
 
-    if not command:
+    if (server_type == "stdio" and not command) or (
+        server_type == "sse" and not args[0]
+    ):
+        # Main app lifespan (when config_path is provided)
         async with AsyncExitStack() as stack:
             for route in app.routes:
                 if isinstance(route, Mount) and isinstance(route.app, FastAPI):
@@ -174,19 +164,28 @@ async def lifespan(app: FastAPI):
                         route.app.router.lifespan_context(route.app),  # noqa
                     )
             yield
-
     else:
-        server_params = StdioServerParameters(
-            command=command,
-            args=args,
-            env={**env},
-        )
+        if server_type == "stdio":
+            server_params = StdioServerParameters(
+                command=command,
+                args=args,
+                env={**env},
+            )
 
-        async with stdio_client(server_params) as (reader, writer):
-            async with ClientSession(reader, writer) as session:
-                app.state.session = session
-                await create_dynamic_endpoints(app, api_dependency=api_dependency)
-                yield
+            async with stdio_client(server_params) as (reader, writer):
+                async with ClientSession(reader, writer) as session:
+                    app.state.session = session
+                    await create_dynamic_endpoints(app, api_dependency=api_dependency)
+                    yield
+        if server_type == "sse":
+            async with sse_client(url=args[0], sse_read_timeout=None) as (
+                reader,
+                writer,
+            ):
+                async with ClientSession(reader, writer) as session:
+                    app.state.session = session
+                    await create_dynamic_endpoints(app, api_dependency=api_dependency)
+                    yield
 
 
 async def run(
@@ -198,19 +197,25 @@ async def run(
 ):
     # Server API Key
     api_dependency = get_verify_api_key(api_key) if api_key else None
+    strict_auth = kwargs.get("strict_auth", False)
+
+    # MCP Server
+    server_type = kwargs.get("server_type")  # "stdio" or "sse" or "http"
+    server_command = kwargs.get("server_command")
 
     # MCP Config
-    config_path = kwargs.get("config")
-    server_command = kwargs.get("server_command")
+    config_path = kwargs.get("config_path")
+
+    # mcpo server
     name = kwargs.get("name") or "MCP OpenAPI Proxy"
     description = (
         kwargs.get("description") or "Automatically generated API from MCP Tool Schemas"
     )
     version = kwargs.get("version") or "1.0"
+
     ssl_certfile = kwargs.get("ssl_certfile")
     ssl_keyfile = kwargs.get("ssl_keyfile")
     path_prefix = kwargs.get("path_prefix") or "/"
-
     main_app = FastAPI(
         title=name,
         description=description,
@@ -228,11 +233,21 @@ async def run(
         allow_headers=["*"],
     )
 
-    if server_command:
+    # Add middleware to protect also documentation and spec
+    if api_key and strict_auth:
+        main_app.add_middleware(APIKeyMiddleware, api_key=api_key)
+
+    if server_type == "sse":
+        main_app.state.server_type = "sse"
+        main_app.state.args = server_command[0]
+        main_app.state.api_dependency = api_dependency
+
+    elif server_command:
         main_app.state.command = server_command[0]
         main_app.state.args = server_command[1:]
         main_app.state.env = os.environ.copy()
         main_app.state.api_dependency = api_dependency
+
     elif config_path:
         # Use the env processor to handle environment variables
         config_data = process_config_file(config_path)
@@ -240,12 +255,12 @@ async def run(
         
         if not mcp_servers:
             raise ValueError("No 'mcpServers' found in config file.")
-            
+
         main_app.description += "\n\n- **available tools**："
         for server_name, server_cfg in mcp_servers.items():
             sub_app = FastAPI(
                 title=f"{server_name}",
-                description=f"{server_name} MCP Server\n\n- [back to tool list](http://{host}:{port}/docs)",
+                description=f"{server_name} MCP Server\n\n- [back to tool list](/docs)",
                 version="1.0",
                 lifespan=lifespan,
             )
@@ -258,15 +273,24 @@ async def run(
                 allow_headers=["*"],
             )
 
-            sub_app.state.command = server_cfg["command"]
-            sub_app.state.args = server_cfg.get("args", [])
-            sub_app.state.env = {**os.environ, **server_cfg.get("env", {})}
+            if server_cfg.get("command"):
+                # stdio
+                sub_app.state.command = server_cfg["command"]
+                sub_app.state.args = server_cfg.get("args", [])
+                sub_app.state.env = {**os.environ, **server_cfg.get("env", {})}
+            if server_cfg.get("url"):
+                # SSE
+                sub_app.state.server_type = "sse"
+                sub_app.state.args = server_cfg["url"]
+
+            # Add middleware to protect also documentation and spec
+            if api_key and strict_auth:
+                sub_app.add_middleware(APIKeyMiddleware, api_key=api_key)
 
             sub_app.state.api_dependency = api_dependency
+
             main_app.mount(f"{path_prefix}{server_name}", sub_app)
-            main_app.description += (
-                f"\n    - [{server_name}](http://{host}:{port}/{server_name}/docs)"
-            )
+            main_app.description += f"\n    - [{server_name}](/{server_name}/docs)"
     else:
         raise ValueError("You must provide either server_command or config.")
 
