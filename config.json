@@ -52,6 +52,13 @@
       "env": {
         "OPENAI_API_KEY": "${OPENAI_API_KEY}"
       }
+    },
+    "gpt-image-1": {
+      "command": "npx",
+      "args": ["-y", "@cloudwerxlab/gpt-image-1-mcp"],
+      "env": {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY}"
+      }
     }
   }
 }
