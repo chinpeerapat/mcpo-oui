@@ -27,6 +27,20 @@ mcpo makes your AI tools usable, secure, and interoperable—right now, with zer
 
 ## 🚀 Quick Usage
 
+### Deploy to Vercel
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fopen-webui%2Fmcpo)
+
+To deploy this project to Vercel, follow these steps:
+
+1.  **Fork this repository.**
+2.  **Create a new Vercel project and connect it to your forked repository.**
+3.  **Configure the project:**
+    *   **Framework Preset:** `Other`
+    *   **Build Command:** `pip install -r requirements.txt`
+    *   **Root Directory:** `.`
+4.  **Deploy!**
+
 We recommend using uv for lightning-fast startup and zero config.
 
 ```bash
