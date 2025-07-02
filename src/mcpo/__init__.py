@@ -119,12 +119,13 @@ def main(
     if not path_prefix.startswith("/"):
         path_prefix = f"/{path_prefix}"
 
+    load_dotenv()
     # Run your async run function from mcpo.main
     asyncio.run(
         run(
             host,
             port,
-            api_key=api_key,
+            api_key=api_key or os.getenv("API_KEY"),
             strict_auth=strict_auth,
             cors_allow_origins=cors_allow_origins,
             server_type=server_type,

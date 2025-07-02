@@ -316,7 +316,15 @@ async def run(
                 sub_app.state.server_type = "stdio"
                 sub_app.state.command = server_cfg["command"]
                 sub_app.state.args = server_cfg.get("args", [])
-                sub_app.state.env = {**os.environ, **server_cfg.get("env", {})}
+                
+                # Replace environment variables
+                env_config = server_cfg.get("env", {})
+                for key, value in env_config.items():
+                    if isinstance(value, str) and value.startswith("${") and value.endswith("}"):
+                        env_var_name = value[2:-1]
+                        env_config[key] = os.getenv(env_var_name, "")
+                
+                sub_app.state.env = {**os.environ, **env_config}
 
             server_config_type = server_cfg.get("type")
             if server_config_type == "sse" and server_cfg.get("url"):
