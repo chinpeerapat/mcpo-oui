@@ -3,6 +3,8 @@ import json, os, re
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import sys
+sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
 from mcpo.utils.auth import get_verify_api_key, APIKeyMiddleware
 from mcpo.main import lifespan, create_dynamic_endpoints
 

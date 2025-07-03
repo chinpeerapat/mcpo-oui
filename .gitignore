@@ -11,3 +11,5 @@ wheels/
 config.json
 .vercel
 .env
+.DS_Store
+vercel.json
